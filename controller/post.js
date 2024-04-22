@@ -66,7 +66,12 @@ const handleGetAuthor = async (req, res) => {
 // Multer configuration for file storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads"); // Specify the directory where uploaded files should be stored
+    const uploadDir = path.join(__dirname, "../uploads");
+    // Create the uploads folder if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
+    cb(null, uploadDir); // Specify the directory where uploaded files should be stored
   },
   filename: function (req, file, cb) {
     const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
