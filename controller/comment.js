@@ -3,12 +3,6 @@ const express = require("express");
 const Post = require("../model/post");
 const User = require("../model/user");
 const Comment = require('../model/comment')
-// Controller function to add a new
-
-
-const getSingleComment = async (req, res) => {
-  
-}
 
 
 const addComment = async (req, res) => {
@@ -46,8 +40,13 @@ const getAllCommentsForPost = async (req, res) => {
 
   try {
     // Find all comments for the specified post ID and populate the 'author' field with 'username'
-    const comments = await Comment.find({ post: postId })
-      .populate('author');
+    const comments = await Comment.find({ post: postId }).populate({
+      path: 'author',
+      populate: {
+        path: 'profilePic'
+      }
+    });
+      
 
     // If no comments are found for the post ID, return an empty array
     if (!comments || comments.length === 0) {

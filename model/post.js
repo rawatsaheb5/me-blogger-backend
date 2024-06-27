@@ -23,8 +23,8 @@ const postSchema = new Schema({
     }
   ],
   image: {
-    type: String,
-    default: 'default_post_image.jpg'
+    type: Schema.Types.ObjectId,
+    ref:'Image'
   },
   likes: [
     {

@@ -19,8 +19,8 @@ const userSchema = new Schema(
       required: true,
     },
     profilePic: {
-      type: String,
-      default: 'default_post_image.jpg'
+      type: Schema.Types.ObjectId,
+      ref:'Image'
     },
     firstname: {
       type: String,

@@ -1,6 +1,8 @@
 const express = require('express');
-const { handleGetAllPost,  createPost, handleGetAllYourPost, deletePost, updatePost, upload, handleGetAuthor, handleGetSinglePost } = require('../controller/post');
+const { handleGetAllPost,  createPost, handleGetAllYourPost, deletePost, updatePost,  handleGetAuthor, handleGetSinglePost } = require('../controller/post');
 const verifyToken = require('../middleware/auth');
+const upload = require('../config/multer');
+
 
 const router = express.Router();
 

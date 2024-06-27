@@ -6,7 +6,6 @@ const router = express.Router();
 // Register
 router.post('/signup', signup);
 router.post('/signin', signin);
-router.put('/profile/:id', )
 
 
 module.exports = router;

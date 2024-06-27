@@ -1,21 +1,15 @@
-const express = require("express");
-const multer = require("multer");
-const path = require("path");
-const { v4: uuidv4 } = require("uuid"); // For generating unique filenames
-const fs = require("fs");
 const Post = require("../model/post");
 const User = require("../model/user");
 const Comment = require("../model/comment");
-
-
-
-
+const cloudinary = require("../config/cloudinary");
+const upload = require("../config/multer");
+const Image = require("../model/image");
 /*---------------------controller for all ------------------------------------------------------------*/
 
 const handleGetAllPost = async (req, res) => {
   try {
     // Fetch all posts from the database
-    const posts = await Post.find();
+    const posts = await Post.find().populate("image");
 
     res.json(posts); // Send the array of posts as a JSON response
   } catch (error) {
@@ -28,7 +22,7 @@ const handleGetSinglePost = async (req, res) => {
   const postId = req.params.postId;
   try {
     // Fetch all posts from the database
-    const post = await Post.findById({ _id: postId });
+    const post = await Post.findById({ _id: postId }).populate("image");
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
@@ -38,14 +32,18 @@ const handleGetSinglePost = async (req, res) => {
   }
 };
 
-
-/*----------------controller to get the author of the post-------------*/ 
+/*----------------controller to get the author of the post-------------*/
 const handleGetAuthor = async (req, res) => {
   const postId = req.params.postId;
 
   try {
     // Find the post by ID and populate the 'author' field
-    const post = await Post.findById(postId).populate("author", "-password");
+    const post = await Post.findById(postId).populate({
+      path: 'author',
+      populate: {
+        path: 'profilePic'
+      }
+    });
 
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
@@ -60,31 +58,9 @@ const handleGetAuthor = async (req, res) => {
   }
 };
 
+/*---------------------------controllers for logged in users------------------------------*/
 
-/*---------------------------controllers for logged in users------------------------------*/ 
-
-// Multer configuration for file storage
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, "../uploads");
-    // Create the uploads folder if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
-    }
-    cb(null, uploadDir); // Specify the directory where uploaded files should be stored
-  },
-  filename: function (req, file, cb) {
-    const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueFilename); // Generate a unique filename for the uploaded file
-  },
-});
-
-// Initialize multer with the specified storage configuration
-const upload = multer({ storage: storage });
-
-
-
-/*---------------controller to create post------------------------*/ 
+/*---------------controller to create post------------------------*/
 
 const createPost = async (req, res) => {
   const { title, description } = req.body;
@@ -97,13 +73,20 @@ const createPost = async (req, res) => {
     }
 
     // extracting the file from FormData object
-    const imageUrl = req.file.filename;
-
+    const uploadedImage = await cloudinary.uploader.upload(req.file.path);
+    if (!uploadedImage) {
+      return res.status(404).json({ error: "Image upload failed" });
+    }
+    const img = new Image({
+      url: uploadedImage.secure_url,
+      cloudinary_id: uploadedImage.public_id,
+    });
+    const image = await img.save();
     // Create a new post instance
     const newPost = new Post({
       title,
       description,
-      image: imageUrl, // Save the image URL in the post
+      image: image._id, // Save the image URL in the post
       author: userId, // Set the author ID to the authenticated user's ID
     });
 
@@ -119,7 +102,6 @@ const createPost = async (req, res) => {
     res.status(500).json({ message: "Failed to create post" });
   }
 };
-
 
 /*---------------controller to delete post------------------------*/
 
@@ -145,6 +127,11 @@ const deletePost = async (req, res) => {
     // Delete associated comments of the post
     await Comment.deleteMany({ post: postId });
 
+    const image = await Image.findById(post.image);
+
+    await cloudinary.uploader.destroy(image.cloudinary_id);
+    await Image.findByIdAndDelete(post.image);
+
     // Remove the post ID from the user's posts array
     const user = await User.findById(userId);
     if (user) {
@@ -152,13 +139,6 @@ const deletePost = async (req, res) => {
       await user.save();
     }
 
-    // Delete the uploaded image file from the server
-
-    const imagePath = path.join(__dirname, `../uploads/${post.image}`);
-    if (fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath); // Synchronously delete the file
-    }
-    console.log(imagePath);
     await Post.deleteOne({ _id: postId });
     res.status(200).json({ message: "Post deleted successfully" });
   } catch (error) {
@@ -167,23 +147,20 @@ const deletePost = async (req, res) => {
   }
 };
 
-
-
 const handleGetAllYourPost = async (req, res) => {
   const userId = req.user.userId;
-  
+
   try {
-    const userPosts = await Post.find({ author: userId }).populate(
-      "author",
-      "_id"
-    );
+    const userPosts = await Post.find({ author: userId })
+      .populate("author", "_id")
+      .populate("image");
 
     res.json(userPosts); // Send the array of user posts as a JSON response
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-/*---------------------controller to update the post ----------------*/ 
+/*---------------------controller to update the post ----------------*/
 const updatePost = async (req, res) => {
   const postId = req.params.postId; // Assuming postId is passed in the request parameters
   const { title, description } = req.body;
@@ -204,9 +181,6 @@ const updatePost = async (req, res) => {
         .json({ message: "You are not authorized to update this post" });
     }
 
-    // Save the current image filename to delete later (if replaced)
-    let oldImageFilename = existingPost.image;
-
     // Update the post fields if new values are provided
     if (title !== undefined) {
       existingPost.title = title;
@@ -215,30 +189,26 @@ const updatePost = async (req, res) => {
       existingPost.description = description;
     }
 
-    //Check if a new image file was uploaded
     if (req.file) {
-      existingPost.image = req.file.filename;
-
-      // Remove the old image file from the server
-      if (oldImageFilename !== "default_post_image.jpg") {
-        const imagePath = path.join(
-          __dirname,
-          "..",
-          "uploads",
-          oldImageFilename
-        );
-
-        // Check if the file exists before attempting to delete it
-        if (fs.existsSync(imagePath)) {
-          fs.unlinkSync(imagePath); // Delete the old image file
-        }
+      const image = await Image.findById(existingPost.image);
+      if (!image) return res.status(404).json({ error: "Image not found" });
+      const deletedOldPhoto = await cloudinary.uploader.destroy(
+        image.cloudinary_id
+      );
+      if (!deletedOldPhoto) {
+        return res
+          .status(404)
+          .json({ error: "Image is not replaced in cloudinary" });
       }
+      const result = await cloudinary.uploader.upload(req.file.path);
+      image.url = result.secure_url;
+      image.cloudinary_id = result.public_id;
+      await image.save();
+      existingPost.image = image._id;
     }
+    await existingPost.save();
 
-    // Save the updated post
-    const updatedPost = await existingPost.save();
-
-    res.status(200).json(updatedPost); // Send the updated post as a JSON response
+    res.status(200).json(existingPost); // Send the updated post as a JSON response
   } catch (error) {
     console.error("Error updating post:", error);
     res.status(500).json({ message: "Failed to update post" });

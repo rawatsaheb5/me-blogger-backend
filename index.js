@@ -10,26 +10,26 @@ const postRoute = require('./route/post')
 const commentRoute = require('./route/comment')
 const likeRoute = require('./route/like')
 const cors = require("cors");
-
-const app = express();
 const port = process.env.PORT || 8000;
 
 dotenv.config();
 connectDB();
 
+
+const app = express();
+
+
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use("/api/auth", authRoutes);
-
 app.use('/api/profile',profileRoute )
 app.use('/api/post',postRoute )
 app.use('/api/comment', commentRoute)
 app.use('/api/like', likeRoute);
 
 app.get("/", (req, res)=>{
-  app.send('server chal rha h sab mast h')
+  app.send('server is running fine ')
 })
 
 app.listen(port, () => {

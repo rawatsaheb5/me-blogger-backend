@@ -1,14 +1,15 @@
-const express = require("express");
-const multer = require("multer");
-const path = require("path");
-const { v4: uuidv4 } = require("uuid"); // For generating unique filenames
-const fs = require("fs");
 const User = require("../model/user");
+const cloudinary = require("../config/cloudinary");
+const upload = require("../config/multer");
+const Image = require("../model/image");
+const Post = require("../model/post");
+const Comment = require("../model/comment");
+
+
 
 // controller to update user profile
 const updateProfile = async (req, res) => {
-
-  // const userId = req.params.userId;
+ 
   const userId = req.user.userId;
 
   try {
@@ -19,32 +20,41 @@ const updateProfile = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Save the current profile picture filename to delete later (if replaced)
-    let oldProfilePicFilename = user.profilePic;
-
     // Update user's firstname and lastname
     user.firstname = req.body.firstname || user.firstname;
     user.lastname = req.body.lastname || user.lastname;
 
     // Check if a new profile picture was uploaded
     if (req.file) {
-
-      // Update profilePic with the new filename
-      user.profilePic = req.file.filename;
-
-      // Remove the old profile picture from the server
-      if (oldProfilePicFilename !== "default_post_image.jpg") {
-        const imagePath = path.join(
-          __dirname,
-          "..",
-          "uploads",
-          oldProfilePicFilename
+      if (user.profilePic) {
+        const image = await Image.findById(user.profilePic);
+        if (!image) return res.status(404).json({ error: "Image not found" });
+        //Delete the old image from Cloudinary
+        const deletedOldProfile = await cloudinary.uploader.destroy(
+          image.cloudinary_id
         );
-
-        // Check if the file exists before attempting to delete it
-        if (fs.existsSync(imagePath)) {
-          fs.unlinkSync(imagePath); // Delete the old profile picture file
+        if (!deletedOldProfile) {
+          return res
+            .status(404)
+            .json({ error: "Image is not replaced in cloudinary" });
         }
+        const result = await cloudinary.uploader.upload(req.file.path);
+        image.url = result.secure_url;
+        image.cloudinary_id = result.public_id;
+        await image.save();
+        user.profilePic = image._id;
+      } else {
+        const result = await cloudinary.uploader.upload(req.file.path);
+        if (!result) {
+          return res.status(404).json({ error: "Image upload failed" });
+        }
+        const img = new Image({
+          url: result.secure_url,
+          cloudinary_id: result.public_id,
+        });
+
+        await img.save();
+        user.profilePic = img._id;
       }
     }
 
@@ -73,13 +83,11 @@ const updateProfile = async (req, res) => {
 };
 
 const getProfile = async (req, res) => {
-  
   const userId = req.user.userId;
-  
 
   try {
     //Find the user by ID and update the profile
-    const dbUser = await User.findById({ _id: userId });
+    const dbUser = await User.findById({ _id: userId }).populate("profilePic");
 
     if (!dbUser) {
       return res.status(404).json({ message: "User not found" });
@@ -93,7 +101,7 @@ const getProfile = async (req, res) => {
         firstname: dbUser.firstname,
         lastname: dbUser.lastname,
         createdAt: dbUser.createdAt,
-        updatedAt:dbUser.updatedAt,
+        updatedAt: dbUser.updatedAt,
       },
       message: "profile fetch successful",
     });
@@ -117,6 +125,15 @@ const deleteProfile = async (req, res) => {
     await Post.deleteMany({ author: userId });
     // delete all comments created by user
     await Comment.deleteMany({ author: userId });
+
+    //Delete the old image from Cloudinary
+
+    if (user.profilePic) {
+      const image = await Image.findById(user.profilePic);
+
+      await cloudinary.uploader.destroy(image.cloudinary_id);
+      await Image.findByIdAndDelete(user.profilePic);
+    }
     // Delete the user
     await User.findByIdAndDelete(userId);
 
