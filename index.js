@@ -29,7 +29,7 @@ app.use('/api/comment', commentRoute)
 app.use('/api/like', likeRoute);
 
 app.get("/", (req, res)=>{
-  app.send('server is running fine ')
+  res.send('server is running fine ')
 })
 
 app.listen(port, () => {
